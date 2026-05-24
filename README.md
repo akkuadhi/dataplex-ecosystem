@@ -2,6 +2,39 @@
 
 A modernized, structured ecosystem to automate Google Cloud Dataplex Data Quality Scan creation.
 
+## 📊 End-to-End Workflow
+
+```mermaid
+flowchart LR
+    subgraph P0 ["Phase 0: Build"]
+        direction TB
+        P0S["UI / CLI"] --> P0P["Select Projects"] --> P0F["Fetch BQ Schema"] --> P0B["Build Rules"] --> P0C["Rules CSV"]
+    end
+
+    subgraph P1 ["Phase 1: Discover"]
+        direction TB
+        P1A["Schema Agent"] --> P1S["Scan Projects"] --> P1V{"Verify Location"} --> P1M["Official Metadata"]
+    end
+
+    subgraph P2 ["Phase 2: Verify"]
+        direction TB
+        P2A["@data-verifier"] --> P2M["Match Headers"] --> P2V{"Verify Mismatches"} --> P2R["Verified Rules"]
+    end
+
+    subgraph P3 ["Phase 3: Generate"]
+        direction TB
+        P3A["@rule-creator"] --> P3T["Translate Logic"] --> P3L{"Verify Logic"} --> P3G["Generate SQL"] --> P3S{"Verify SQL"} --> P3F["Generate Files"]
+    end
+
+    P0 --> P1 --> P2 --> P3
+    P3 --> DONE["Scans Ready"]
+
+    style P1V fill:#f9f,stroke:#333,stroke-width:2px
+    style P2V fill:#f9f,stroke:#333,stroke-width:2px
+    style P3L fill:#f9f,stroke:#333,stroke-width:2px
+    style P3S fill:#f9f,stroke:#333,stroke-width:2px
+```
+
 ---
 
 ## 🏗️ The 4-Phase Pipeline
