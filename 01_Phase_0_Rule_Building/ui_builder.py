@@ -17,19 +17,31 @@ from streamlit.runtime.scriptrunner import add_script_run_ctx
 st.set_page_config(page_title="Dataplex Rule Builder", layout="wide", page_icon="🛠️")
 
 def setup_environment():
-    """Ensures environment is ready for discovery."""
+    """Ensures environment is ready for discovery and verifies live connectivity."""
     if 'env_ready' not in st.session_state:
-        # Purge all proxy env vars to ensure Direct connection
-        for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-            os.environ.pop(var, None)
+        # Purge all proxy env vars to ensure Direct connection ONLY if not manually overridden
+        if not st.session_state.get('manual_proxy_active', False):
+            for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+                os.environ.pop(var, None)
         
         try:
+            # 1. Check local credentials
             creds, project = default()
+            
+            # 2. PERFORM LIVE VERIFICATION (This catches proxy/DNS issues)
+            # We try a lightweight call to the Resource Manager API
+            temp_rm = build('cloudresourcemanager', 'v1', credentials=creds, cache_discovery=False)
+            temp_rm.projects().list(pageSize=1).execute()
+            
             st.session_state.env_ready = True
-            st.session_state.auth_status = "✅ Authenticated"
+            st.session_state.auth_status = "✅ Authenticated & Connected"
         except Exception as e:
             st.session_state.env_ready = False
-            st.session_state.auth_status = f"❌ Auth Failed: {str(e)[:50]}"
+            error_msg = str(e)
+            if "oauth2.googleapis.com" in error_msg or "Deadline exceeded" in error_msg:
+                st.session_state.auth_status = "❌ Network Error (Proxy required?)"
+            else:
+                st.session_state.auth_status = f"❌ Auth Failed: {error_msg[:50]}"
 
 def manual_proxy_ui():
     """Optional manual proxy override."""
@@ -38,11 +50,16 @@ def manual_proxy_ui():
         if st.button("Apply Proxy"):
             if url:
                 os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = url
+                st.session_state.manual_proxy_active = True
             else:
                 for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
                     os.environ.pop(var, None)
+                st.session_state.manual_proxy_active = False
             
+            # Reset session state to force re-authentication and re-discovery
+            if 'env_ready' in st.session_state: del st.session_state.env_ready
             if 'catalog' in st.session_state: del st.session_state.catalog
+            st.cache_resource.clear()
             st.rerun()
 
 @st.cache_resource
