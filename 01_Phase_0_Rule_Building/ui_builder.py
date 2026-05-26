@@ -19,10 +19,10 @@ st.set_page_config(page_title="Dataplex Rule Builder", layout="wide", page_icon=
 def setup_environment():
     """Ensures environment is ready for discovery and verifies live connectivity."""
     if 'env_ready' not in st.session_state:
-        # Purge all proxy env vars to ensure Direct connection ONLY if not manually overridden
+        # Use default internal proxy if no manual override is active
         if not st.session_state.get('manual_proxy_active', False):
-            for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-                os.environ.pop(var, None)
+            default_proxy = "http://googleapis-dev-gcp.cloud.uk.hsbc:3128"
+            os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = default_proxy
         
         try:
             # 1. Check local credentials
