@@ -14,6 +14,7 @@ if BASE_DIR not in sys.path:
 
 import streamlit as st
 import pandas as pd
+import google_auth_httplib2
 from googleapiclient.discovery import build
 from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed

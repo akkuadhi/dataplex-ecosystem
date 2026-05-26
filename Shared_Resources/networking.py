@@ -3,6 +3,7 @@ import os
 import requests
 import httplib2
 import socks
+import google_auth_httplib2
 from urllib.parse import urlparse
 from google.auth import default
 from googleapiclient.discovery import build
@@ -82,14 +83,14 @@ def setup_environment_logic():
         # Live verification - Try Resource Manager first
         try:
             # Authorize the proxy-aware client with credentials
-            auth_http = creds.authorize(get_http_client())
+            auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_http_client())
             temp_rm = build('cloudresourcemanager', 'v1', cache_discovery=False, http=auth_http)
             temp_rm.projects().list(pageSize=1).execute()
         except Exception as rm_err:
             # If RM fails (often due to permissions), try BigQuery as fallback
             if "forbidden" in str(rm_err).lower() or "permission" in str(rm_err).lower():
                 try:
-                    auth_http = creds.authorize(get_http_client())
+                    auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_http_client())
                     temp_bq = build('bigquery', 'v2', cache_discovery=False, http=auth_http)
                     temp_bq.projects().list().execute()
                 except Exception as bq_err:

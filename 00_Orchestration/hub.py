@@ -13,6 +13,7 @@ import streamlit as st
 import pandas as pd
 import yaml
 import requests
+import google_auth_httplib2
 from google.cloud import bigquery
 from googleapiclient.discovery import build
 from google.auth import default
