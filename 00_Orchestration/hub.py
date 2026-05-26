@@ -41,11 +41,15 @@ from Shared_Resources.networking import setup_environment_logic, get_http_client
 
 @st.cache_resource
 def get_bq_service():
-    return build('bigquery', 'v2', cache_discovery=False, http=get_http_client())
+    creds, _ = default()
+    auth_http = creds.authorize(get_http_client())
+    return build('bigquery', 'v2', cache_discovery=False, http=auth_http)
 
 @st.cache_resource
 def get_rm_service():
-    return build('cloudresourcemanager', 'v1', cache_discovery=False, http=get_http_client())
+    creds, _ = default()
+    auth_http = creds.authorize(get_http_client())
+    return build('cloudresourcemanager', 'v1', cache_discovery=False, http=auth_http)
 
 def setup_environment():
     """Intelligent proxy detection and setup using shared logic."""
