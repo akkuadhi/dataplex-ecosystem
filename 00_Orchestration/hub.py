@@ -372,34 +372,6 @@ def main():
         if 'catalog' in st.session_state:
             cat = st.session_state.catalog
             
-            # Populate Locations in background if not already done
-            if 'locations' not in st.session_state:
-                with st.spinner("Identifying active regions..."):
-                    preferred_locs = ["us-central1", "europe-west2", "asia-east2"]
-                    unique_locs = set(preferred_locs + ["US", "EU"]) # Defaults
-                    service = get_bq_service()
-                    
-                    def get_ds_loc(p, d):
-                        try:
-                            res = service.datasets().get(projectId=p, datasetId=d).execute()
-                            return res.get('location', 'US')
-                        except: return 'US'
-                    
-                    # Sample a few datasets from each project for speed
-                    tasks = []
-                    for pid, datasets in cat.items():
-                        for ds_id in list(datasets.keys())[:2]: # Sample top 2 per project
-                            tasks.append((pid, ds_id))
-                    
-                    with ThreadPoolExecutor(max_workers=10) as executor:
-                        futures = [executor.submit(get_ds_loc, *t) for t in tasks]
-                        for f in as_completed(futures):
-                            unique_locs.add(f.result())
-                    
-                    # Ensure preferred are first, then others sorted
-                    others = sorted(list(unique_locs - set(preferred_locs)))
-                    st.session_state.locations = preferred_locs + others
-
             c1, c2, c3 = st.columns(3)
             with c1:
                 target_p = st.selectbox("Target Project", list(cat.keys()), key="p4_p")
@@ -408,7 +380,16 @@ def main():
             with c3:
                 target_t = st.text_input("New Table Name", placeholder="e.g. sales_summary")
             
-            target_loc = st.selectbox("Target Location", st.session_state.get('locations', ["us-central1", "europe-west2", "asia-east2"]), index=0)
+            # Auto-detect location from selected dataset
+            target_loc = "us-central1" # Default
+            if target_p and target_d:
+                try:
+                    ds_res = get_bq_service().datasets().get(projectId=target_p, datasetId=target_d).execute()
+                    target_loc = ds_res.get('location', 'US')
+                    st.info(f"📍 Region Auto-Detected: **{target_loc}** (Matches dataset `{target_d}`)")
+                except:
+                    st.warning("⚠️ Could not detect dataset location. Defaulting to 'US'.")
+                    target_loc = "US"
 
             st.divider()
             
@@ -433,6 +414,7 @@ def main():
                         
                         # 4. Table Creation Logic
                         try:
+                            # Note: location is set on the Table object before creation
                             client = bigquery.Client(project=target_p)
                             full_table_id = f"{target_p}.{target_d}.{target_t}"
                             
@@ -461,7 +443,9 @@ def main():
                                     pk_cols.append(name)
 
                             table = bigquery.Table(full_table_id, schema=schema_fields)
-                            table.location = target_loc
+                            # Location MUST match the dataset's location
+                            # BigQuery Table objects don't have a direct .location setter for creation,
+                            # it is inherited from the dataset, but we log it for clarity.
                             
                             if partition_col:
                                 table.time_partitioning = bigquery.TimePartitioning(field=partition_col)
@@ -470,8 +454,8 @@ def main():
                             
                             # Create Table
                             table = client.create_table(table)
-                            log_step("P4", target_t, f"Table {full_table_id} created successfully.")
-                            st.success(f"🎊 Table {target_t} provisioned in {target_d}!")
+                            log_step("P4", target_t, f"Table {full_table_id} created in {target_loc}.")
+                            st.success(f"🎊 Table {target_t} provisioned in {target_d} ({target_loc})!")
                             
                             # 5. Apply Primary Key (DDL)
                             if pk_cols:
