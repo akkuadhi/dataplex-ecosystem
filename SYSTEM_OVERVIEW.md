@@ -36,8 +36,9 @@ flowchart LR
 
 ## **The Master Orchestrator**
 **Tool:** `hub.py` (Streamlit)
-- **Purpose:** A single entry point to run all 4 phases of the pipeline.
-- **Features:** Intelligent auto-authentication, fallback proxy management, and unified execution logs (minimized to reduce UI lag). High-performance multithreading across all phases.
+- **Purpose:** A single entry point to run all 5 phases of the pipeline.
+- **Features:** Intelligent **"Direct-First, Proxy-Fallback"** networking using the `Shared_Resources/networking.py` utility. Automatically handles corporate proxy settings (`http://googleapis-dev.dev.gcp.cloud.in.hsbc:3128`) and enforces remote DNS resolution to ensure stable connectivity. Unified execution logs are displayed via `Shared_Resources/ui_helpers.py`.
+
 
 ## **The Four-Phase Pipeline**
 

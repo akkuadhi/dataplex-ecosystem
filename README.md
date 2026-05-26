@@ -64,12 +64,19 @@ Directly create BigQuery tables with advanced configurations:
 
 ## 🛠️ Getting Started
 
-1.  **Authentication:**
+1.  **Environment Setup:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  **Authentication:**
     ```bash
     gcloud auth application-default login
     ```
-2.  **Launch the Hub:**
+3.  **Networking & Proxy:**
+    The ecosystem uses a **"Direct-First, Proxy-Fallback"** strategy. It will automatically detect if a direct connection is available or if it needs to use the corporate proxy (`http://googleapis-dev.dev.gcp.cloud.in.hsbc:3128`). 
+    *Note: Remote DNS resolution is enabled to bypass local corporate DNS restrictions.*
+
+4.  **Launch the Hub:**
     ```bash
     streamlit run 00_Orchestration/hub.py
     ```
-3.  **Templates:** Use `Shared_Resources/table_schema_template.csv` for defining new tables in Phase 4.

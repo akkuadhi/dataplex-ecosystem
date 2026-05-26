@@ -11,20 +11,20 @@ You must never assume you understand the user's data logic or file structures.
 - **Before Scan Creation:** Summarize all Batch parameters (Schedule, Incremental Field, etc.) for final sign-off.
 
 ### **2. Technical Environment Constraints**
-- **Proxy Usage:** All agents MUST support proxy configuration. If Windows credentials are missing, agents MUST ask the user for a username/password for the proxy.
+- **Proxy Usage:** All agents support a **"Direct-First, Proxy-Fallback"** strategy. They automatically attempt direct connection and fall back to the corporate proxy (`http://googleapis-dev.dev.gcp.cloud.in.hsbc:3128`) if needed.
+- **DNS Resolution:** Remote DNS resolution is enforced via `PySocks` to ensure Google APIs resolve correctly within corporate networks.
 - **Security:** MUST use default CA certificates provided by the environment.
 - **Tooling:** Use ONLY the default Python environment and default `gcloud` authentication details. No service account keys or virtual environments should be created.
 
 ### **3. Pipeline Execution Sequence**
-When the user asks to "start the process" or "create scans," guide them through this specific order:
-1. **Discovery:** Run `Schema/bq_schema_agent.py` to pull metadata.
-2. **Verify:** Invoke `@data-verifier` to clean the rules file.
-3. **Generate:** Invoke `@rule-creator` to build the final artifacts.
+The **Dataplex Master Hub (`hub.py`)** coordinates the entire flow:
+1. **Phase 0:** Build Rules via UI/CLI.
+2. **Phase 1:** Discover schemas and metadata.
+3. **Phase 2:** Verify rules against live BigQuery schemas.
+4. **Phase 3:** Generate Dataplex artifacts (YAML/Bash).
+5. **Phase 4:** Provision and validate new BigQuery tables.
 
-### **3. File & Artifact Management**
-- **Structured Storage:** ALL generated artifacts (schemas, YAMLs, batch scripts) MUST be organized into table-specific subdirectories within the `outputs/` folder (e.g., `outputs/project_dataset_table/`).
-- **Audit Logging:** EVERY execution step of every agent MUST be logged in a timestamped file within the `logs/` directory. Logs must include:
-    - Inputs provided by the user.
-    - Agent's interpretation/logic explanations.
-    - Final technical commands or configuration content.
-- **Rule Source:** Store all rules in `Rule creator/rules_template.csv`.
+### **4. File & Artifact Management**
+- **Structured Storage:** ALL generated artifacts (schemas, YAMLs, batch scripts) MUST be organized into table-specific subdirectories within the `outputs/` folder.
+- **Audit Logging:** Standardized logging is implemented in `Shared_Resources/ui_helpers.py` and displayed in the UI's "System Execution Logs" expander.
+- **Rule Source:** Store all rules in `Shared_Resources/final_rules.csv`.
