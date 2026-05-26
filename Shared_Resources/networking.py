@@ -15,8 +15,18 @@ def check_connectivity(proxy=None):
         return False
 
 def get_best_proxy():
-    """Returns the mandatory corporate proxy."""
-    return "http://googleapis-dev-gcp.cloud.uk.hsbc:3128", "Corporate Proxy (HSBC)"
+    """Identifies the best proxy to use: Direct first, then HSBC proxy."""
+    hsbc_proxy = "http://googleapis-dev-gcp.cloud.uk.hsbc:3128"
+    
+    # Try Direct first
+    if check_connectivity(None):
+        return None, "Direct"
+    
+    # Try HSBC proxy
+    if check_connectivity(hsbc_proxy):
+        return hsbc_proxy, "Corporate Proxy (HSBC)"
+            
+    return "Manual", "Manual Required"
 
 def setup_environment_logic():
     """Common logic for setting up the environment, used by both Hub and specialized UIs."""
