@@ -6,34 +6,31 @@ within Google Cloud BigQuery and extract their official schemas.
 Supports corporate proxies and adheres to default gcloud authentication.
 """
 
-import os
 import sys
+import os
+# Add parent and Shared_Resources to path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
 from google.cloud import bigquery
+from Shared_Resources.networking import setup_environment_logic
 
 def setup_environment():
-    """Configures proxy and environment settings based on user input."""
+    """Configures proxy and environment settings based on shared logic."""
     print("\n" + "="*40)
     print("   BIGQUERY SCHEMA RETRIEVAL AGENT")
     print("="*40)
     
-    print("\n[1/5] Proxy Setup")
-    proxy_url = input("Enter proxy URL (e.g., proxy.company.com:port) or press Enter to skip: ").strip()
-    if proxy_url:
-        use_creds = input("Use custom proxy credentials? (y/n): ").lower() == 'y'
-        if use_creds:
-            user = input("Proxy Username: ").strip()
-            password = input("Proxy Password: ").strip()
-            proxy = f"http://{user}:{password}@{proxy_url}"
-        else:
-            proxy = f"http://{proxy_url}"
-        
-        os.environ['HTTP_PROXY'] = proxy
-        os.environ['HTTPS_PROXY'] = proxy
-        os.environ['http_proxy'] = proxy
-        os.environ['https_proxy'] = proxy
-        print("  -> Proxy configured.")
-    else:
-        print("  -> No proxy configured.")
+    print("\n[1/5] Proxy & Auth Setup")
+    success, mode, status = setup_environment_logic()
+    print(f"  -> Connection Mode: {mode}")
+    print(f"  -> Auth Status: {status}")
+    
+    if not success:
+        print(f"  [!] Setup failed: {status}")
+        print("  [!] Please run 'gcloud auth application-default login' and check your network.")
+        sys.exit(1)
 
     print("  -> Using default Python environment and gcloud authentication.")
 

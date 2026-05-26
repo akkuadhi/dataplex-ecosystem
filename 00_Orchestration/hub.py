@@ -19,8 +19,12 @@ from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 
+import sys
 # --- Dynamic Pathing ---
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
 OUTPUTS_BASE = os.path.join(BASE_DIR, "outputs")
 LOGS_DIR = os.path.join(BASE_DIR, "logs")
 PHASE_0_DIR = os.path.join(BASE_DIR, "01_Phase_0_Rule_Building")
@@ -30,76 +34,17 @@ for directory in [OUTPUTS_BASE, LOGS_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
+from Shared_Resources.networking import setup_environment_logic
+
 # --- Helper Functions ---
 
-def get_table_dir(proj, ds, tbl):
-    """Creates table-specific output directory."""
-    path = os.path.join(OUTPUTS_BASE, f"{proj}_{ds}_{tbl}")
-    os.makedirs(path, exist_ok=True)
-    return path
-
-def log_step(phase, table_name, message, details=None):
-    """Logs timestamped execution steps."""
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = os.path.join(LOGS_DIR, f"{ts}_{phase}_{table_name}.log")
-    
-    time_str = datetime.now().strftime("%H:%M:%S")
-    log_msg = f"[{time_str}] [{phase}] {message}"
-    
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"{log_msg}\n")
-        if details:
-            f.write(f"Details: {json.dumps(details, indent=2)}\n")
-            
-    try:
-        from streamlit import session_state
-        if 'system_logs' in session_state:
-            session_state.system_logs.append(log_msg)
-    except:
-        pass
-
-@st.cache_resource
-def get_bq_service():
-    return build('bigquery', 'v2', cache_discovery=False)
-
-@st.cache_resource
-def get_rm_service():
-    return build('cloudresourcemanager', 'v1', cache_discovery=False)
-
-def check_connectivity(proxy=None):
-    """Checks connectivity to Google APIs with an optional proxy."""
-    url = "https://www.googleapis.com/discovery/v1/apis"
-    proxies = {"http": proxy, "https": proxy} if proxy else {"http": "", "https": ""}
-    try:
-        response = requests.get(url, proxies=proxies, timeout=5)
-        return response.status_code == 200
-    except:
-        return False
-
 def setup_environment():
-    """Intelligent proxy detection and setup."""
-    default_proxy = "http://proxy1234_akkuadhi:3128"
-    
+    """Intelligent proxy detection and setup using shared logic."""
     if 'env_ready' not in st.session_state:
-        # Try Direct first
-        for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-            os.environ.pop(var, None)
-        
-        if check_connectivity(None):
-            st.session_state.proxy_mode = "Direct"
-        elif check_connectivity(default_proxy):
-            os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = default_proxy
-            st.session_state.proxy_mode = "Default Proxy"
-        else:
-            st.session_state.proxy_mode = "Manual Required"
-            
-        try:
-            creds, project = default()
-            st.session_state.env_ready = True
-            st.session_state.auth_status = "✅ Authenticated"
-        except:
-            st.session_state.env_ready = False
-            st.session_state.auth_status = "❌ Auth Failed"
+        success, mode, status = setup_environment_logic()
+        st.session_state.env_ready = success
+        st.session_state.proxy_mode = mode
+        st.session_state.auth_status = status
 
 def build_catalog():
     """Discovery using Resource Manager API (Sequential for robustness in Hub)."""

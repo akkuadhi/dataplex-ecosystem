@@ -5,43 +5,41 @@ High-Performance Dataplex Rule Builder UI.
 - Parallelized discovery with real-time logging.
 """
 
+import sys
 import os
+# Add parent and Shared_Resources to path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BASE_DIR not in sys.path:
+    sys.path.append(BASE_DIR)
+
 import streamlit as st
 import pandas as pd
 from googleapiclient.discovery import build
 from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.runtime.scriptrunner import add_script_run_ctx
+from Shared_Resources.networking import setup_environment_logic
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Dataplex Rule Builder", layout="wide", page_icon="🛠️")
 
 def setup_environment():
-    """Ensures environment is ready for discovery and verifies live connectivity."""
+    """Intelligent proxy detection and setup using shared logic."""
     if 'env_ready' not in st.session_state:
-        # Use default internal proxy if no manual override is active
-        if not st.session_state.get('manual_proxy_active', False):
-            default_proxy = "http://googleapis-dev-gcp.cloud.uk.hsbc:3128"
-            os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = default_proxy
-        
-        try:
-            # 1. Check local credentials
-            creds, project = default()
-            
-            # 2. PERFORM LIVE VERIFICATION (This catches proxy/DNS issues)
-            # We try a lightweight call to the Resource Manager API
-            temp_rm = build('cloudresourcemanager', 'v1', credentials=creds, cache_discovery=False)
-            temp_rm.projects().list(pageSize=1).execute()
-            
-            st.session_state.env_ready = True
-            st.session_state.auth_status = "✅ Authenticated & Connected"
-        except Exception as e:
-            st.session_state.env_ready = False
-            error_msg = str(e)
-            if "oauth2.googleapis.com" in error_msg or "Deadline exceeded" in error_msg:
-                st.session_state.auth_status = "❌ Network Error (Proxy required?)"
-            else:
-                st.session_state.auth_status = f"❌ Auth Failed: {error_msg[:50]}"
+        # Respect manual override if active
+        if st.session_state.get('manual_proxy_active', False):
+            try:
+                creds, project = default()
+                st.session_state.env_ready = True
+                st.session_state.auth_status = "✅ Authenticated (Manual Proxy)"
+                return
+            except:
+                pass
+
+        success, mode, status = setup_environment_logic()
+        st.session_state.env_ready = success
+        st.session_state.proxy_mode = mode
+        st.session_state.auth_status = status
 
 def manual_proxy_ui():
     """Optional manual proxy override."""
