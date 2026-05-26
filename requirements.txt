@@ -1,8 +1,8 @@
-streamlit==1.52.1
-pandas==2.3.3
-PyYAML==6.0.2
-requests==2.32.4
+streamlit==1.57.0
+pandas==3.0.3
+PyYAML==6.0.3
+requests==2.34.2
 google-cloud-bigquery==3.41.0
 google-api-python-client==2.196.0
-google-auth==2.52.0
+google-auth==2.53.0
 openpyxl==3.1.5
