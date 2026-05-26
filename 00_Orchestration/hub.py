@@ -54,7 +54,9 @@ def build_catalog():
     try:
         res = rm_service.projects().list().execute()
         projects = [p['projectId'] for p in res.get('projects', []) if p['lifecycleState'] == 'ACTIVE']
-    except:
+    except Exception as e:
+        log_step("SYSTEM", "Discovery", f"RM Projects List failed: {e}")
+        st.error(f"Failed to list projects: {e}")
         return {}
 
     catalog = {}
@@ -68,8 +70,13 @@ def build_catalog():
                 tables = [t['tableReference']['tableId'] for t in t_res.get('tables', [])]
                 if tables: p_data[ds] = tables
             if p_data: catalog[pid] = p_data
-        except:
+        except Exception as e:
+            log_step("SYSTEM", "Discovery", f"Scanning project {pid} failed: {e}")
             continue
+    
+    if not catalog:
+        st.warning("No projects or datasets found. Ensure your account has 'Viewer' permissions on at least one project.")
+        
     return catalog
 
 def main():
@@ -84,13 +91,22 @@ def main():
         st.write(f"**Auth:** {st.session_state.get('auth_status', 'Unknown')}")
         
         with st.expander("🌐 Manual Proxy Override"):
-            url = st.text_input("Proxy URL")
+            url = st.text_input("Proxy URL (e.g. http://host:port)")
             if st.button("Apply"):
-                os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = url
+                if url:
+                    os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = url
+                else:
+                    for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+                        os.environ.pop(var, None)
+                
+                # Force re-verification
+                if 'env_ready' in st.session_state: del st.session_state.env_ready
+                st.cache_resource.clear()
                 st.rerun()
 
     if not st.session_state.get('env_ready', False):
-        st.error("GCP Environment not ready. Please run 'gcloud auth application-default login'.")
+        st.error(f"GCP Environment not ready: {st.session_state.get('auth_status', 'Unknown Error')}")
+        st.info("Please run 'gcloud auth application-default login' in your terminal.")
         return
 
     tabs = st.tabs(["📂 Build", "🔍 Discover", "✅ Verify", "🛠️ Generate", "🏗️ Create Table"])

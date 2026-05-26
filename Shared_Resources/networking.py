@@ -5,12 +5,22 @@ from google.auth import default
 from googleapiclient.discovery import build
 
 def check_connectivity(proxy=None):
-    """Checks connectivity to Google APIs with an optional proxy."""
-    url = "https://www.googleapis.com/discovery/v1/apis"
+    """Checks connectivity to Google Discovery and OAuth APIs with an optional proxy."""
+    discovery_url = "https://www.googleapis.com/discovery/v1/apis"
+    oauth_url = "https://oauth2.googleapis.com/token"
     proxies = {"http": proxy, "https": proxy} if proxy else {"http": "", "https": ""}
     try:
-        response = requests.get(url, proxies=proxies, timeout=5)
-        return response.status_code == 200
+        # 1. Check Discovery (General API access)
+        d_res = requests.get(discovery_url, proxies=proxies, timeout=5)
+        is_google = d_res.status_code == 200 and "discovery#directoryItem" in d_res.text
+        
+        # 2. Check OAuth (Authentication access)
+        # A 404 or 405 on a GET to /token is usually fine, it means the server is reached.
+        # A timeout or connection error means it's blocked.
+        o_res = requests.get(oauth_url, proxies=proxies, timeout=5)
+        is_oauth_reachable = o_res.status_code in [200, 400, 404, 405]
+        
+        return is_google and is_oauth_reachable
     except:
         return False
 
