@@ -1,7 +1,7 @@
 """
 High-Performance Dataplex Rule Builder UI.
 - Uses Resource Manager & Discovery APIs for optimized resource discovery.
-- Implements project-level and table-level IAM filtering (Read/Write).
+- Implements project-level and table-level IAM filtering (Read Only).
 - Parallelized discovery with real-time logging.
 """
 
@@ -48,9 +48,7 @@ def get_bq_client():
     return bigquery.Client()
 
 def check_table_access(project_id, dataset_id, table_id, client):
-    """Checks for Read/Write/Update permissions on a specific table."""
-    # Note: Cloud Client doesn't have a direct testIamPermissions for tables as easily as discovery,
-    # but we can try a lightweight get_table call.
+    """Checks for Read permissions on a specific table."""
     try:
         table_ref = f"{project_id}.{dataset_id}.{table_id}"
         client.get_table(table_ref)
