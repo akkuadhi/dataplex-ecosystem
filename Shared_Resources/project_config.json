@@ -1,5 +1,6 @@
 {
     "allowed_projects": [
         "plasma-galaxy-287803"
-    ]
+    ],
+    "allowed_datasets": []
 }

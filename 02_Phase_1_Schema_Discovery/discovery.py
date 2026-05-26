@@ -54,14 +54,14 @@ def get_allowed_projects():
     return []
 
 def discover_table_locations(client, target_tables):
-    """Scans projects (Filtered by project_config.json) to find tables."""
+    """Scans projects and datasets (Filtered by project_config.json) to find tables."""
     print("\n[3/5] Searching for tables...")
     found_locations = []
     
-    allowed = get_allowed_projects()
-    if allowed:
-        projects = allowed
-        print(f"  -> Scanning {len(allowed)} projects from config.")
+    allowed_proj, allowed_ds = get_allowed_resources()
+    if allowed_proj:
+        projects = allowed_proj
+        print(f"  -> Scanning {len(allowed_proj)} projects from config.")
     else:
         all_proj = list(client.list_projects())
         projects = [p.project_id for p in all_proj]
@@ -75,6 +75,11 @@ def discover_table_locations(client, target_tables):
             datasets = list(client.list_datasets(project=project_id))
             for dataset in datasets:
                 dataset_id = dataset.dataset_id
+                
+                # Apply Dataset Filter
+                if allowed_ds and dataset_id not in allowed_ds:
+                    continue
+
                 tables = list(client.list_tables(f"{project_id}.{dataset_id}"))
                 existing_table_ids = {t.table_id for t in tables}
                 

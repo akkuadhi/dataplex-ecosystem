@@ -57,29 +57,29 @@ def check_table_access(project_id, dataset_id, table_id, client):
         return False
 
 import json
-def get_allowed_projects():
-    """Reads the list of allowed projects from config file."""
-    # SHARED_DIR is parent/Shared_Resources
+def get_allowed_resources():
+    """Reads allowed projects and datasets from config file."""
+    # BASE_DIR is parent of 01_Phase_0_Rule_Building
     config_path = os.path.join(BASE_DIR, "Shared_Resources", "project_config.json")
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r') as f:
                 config = json.load(f)
-                return config.get("allowed_projects", [])
+                return config.get("allowed_projects", []), config.get("allowed_datasets", [])
         except Exception as e:
             log_message(f"Error reading project config: {e}", level="WARNING")
-    return []
+    return [], []
 
 def build_full_catalog():
     """Discovery with project-level fast path and table-level precision (Limited by project_config.json)."""
     log_message("🚀 Starting parallel discovery...")
     client = get_bq_client()
-    allowed = get_allowed_projects()
+    allowed_proj, allowed_ds = get_allowed_resources()
     
     try:
-        if allowed:
-            log_message(f"Filtering discovery to {len(allowed)} projects from config.")
-            projects = allowed
+        if allowed_proj:
+            log_message(f"Filtering discovery to {len(allowed_proj)} projects from config.")
+            projects = allowed_proj
         else:
             projects = [p.project_id for p in client.list_projects()]
     except Exception as e:
@@ -97,6 +97,11 @@ def build_full_catalog():
         try:
             datasets = [d.dataset_id for d in client.list_datasets(project=pid)]
             
+            # Apply Dataset Filter
+            if allowed_ds:
+                datasets = [d for d in datasets if d in allowed_ds]
+                if not datasets: continue
+
             p_catalog = {}
             for ds in datasets:
                 # 3. List tables
@@ -106,7 +111,6 @@ def build_full_catalog():
                     continue
                 
                 # For simplicity in this refactor, we'll add all found tables. 
-                # (Permissions will be caught during actual use)
                 p_catalog[ds] = tables
                 log_message(f"    ✅ {ds}: {len(tables)} tables added.")
             
