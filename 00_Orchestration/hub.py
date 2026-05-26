@@ -34,7 +34,7 @@ for directory in [OUTPUTS_BASE, LOGS_DIR]:
     if not os.path.exists(directory):
         os.makedirs(directory)
 
-from Shared_Resources.networking import setup_environment_logic
+from Shared_Resources.ui_helpers import render_system_sidebar, render_execution_logs, log_message
 
 # --- Helper Functions ---
 
@@ -46,6 +46,12 @@ def setup_environment():
         st.session_state.proxy_mode = mode
         st.session_state.auth_status = status
 
+def get_table_dir(proj, ds, tbl):
+    """Creates table-specific output directory."""
+    path = os.path.join(OUTPUTS_BASE, f"{proj}_{ds}_{tbl}")
+    os.makedirs(path, exist_ok=True)
+    return path
+
 def build_catalog():
     """Discovery using Resource Manager API (Sequential for robustness in Hub)."""
     rm_service = get_rm_service()
@@ -55,7 +61,7 @@ def build_catalog():
         res = rm_service.projects().list().execute()
         projects = [p['projectId'] for p in res.get('projects', []) if p['lifecycleState'] == 'ACTIVE']
     except Exception as e:
-        log_step("SYSTEM", "Discovery", f"RM Projects List failed: {e}")
+        log_message(f"RM Projects List failed: {e}", level="ERROR")
         st.error(f"Failed to list projects: {e}")
         return {}
 
@@ -71,7 +77,7 @@ def build_catalog():
                 if tables: p_data[ds] = tables
             if p_data: catalog[pid] = p_data
         except Exception as e:
-            log_step("SYSTEM", "Discovery", f"Scanning project {pid} failed: {e}")
+            log_message(f"Scanning project {pid} failed: {e}", level="ERROR")
             continue
     
     if not catalog:
@@ -84,25 +90,7 @@ def main():
     setup_environment()
 
     st.title("🚀 Dataplex Master Hub")
-    
-    with st.sidebar:
-        st.header("⚙️ System Status")
-        st.write(f"**Connection:** {st.session_state.get('proxy_mode', 'Unknown')}")
-        st.write(f"**Auth:** {st.session_state.get('auth_status', 'Unknown')}")
-        
-        with st.expander("🌐 Manual Proxy Override"):
-            url = st.text_input("Proxy URL (e.g. http://host:port)")
-            if st.button("Apply"):
-                if url:
-                    os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = url
-                else:
-                    for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-                        os.environ.pop(var, None)
-                
-                # Force re-verification
-                if 'env_ready' in st.session_state: del st.session_state.env_ready
-                st.cache_resource.clear()
-                st.rerun()
+    render_system_sidebar()
 
     if not st.session_state.get('env_ready', False):
         st.error(f"GCP Environment not ready: {st.session_state.get('auth_status', 'Unknown Error')}")
@@ -318,7 +306,7 @@ def main():
                         f.write(batch_cmd)
                     
                     st.success(f"Artifacts generated in {t_dir}")
-                    log_step("P3", t, "Generated Spec and Batch script")
+                    log_message(f"Generated Spec and Batch script for {t}")
 
     # --- Phase 4: Create Table ---
     with tabs[4]:
@@ -415,19 +403,19 @@ def main():
                             
                             # Create Table
                             table = client.create_table(table)
-                            log_step("P4", target_t, f"Table {full_table_id} created in {target_loc}.")
+                            log_message(f"Table {full_table_id} created in {target_loc}.")
                             st.success(f"🎊 Table {target_t} provisioned in {target_d} ({target_loc})!")
                             
                             # 5. Apply Primary Key (DDL)
                             if pk_cols:
                                 pk_sql = f"ALTER TABLE `{full_table_id}` ADD PRIMARY KEY ({', '.join(pk_cols)}) NOT ENFORCED"
                                 client.query(pk_sql).result()
-                                log_step("P4", target_t, f"Primary key applied: {pk_cols}")
+                                log_message(f"Primary key applied to {target_t}: {pk_cols}")
                                 st.info(f"🔑 Primary Key constraint applied to: {pk_cols}")
 
                         except Exception as e:
                             st.error(f"❌ Creation Failed: {e}")
-                            log_step("P4", target_t, f"Provisioning Error: {str(e)}")
+                            log_message(f"Provisioning Error for {target_t}: {e}", level="ERROR")
                     else:
                         st.error("❌ Validation Failed: Data headers do not match Schema definition.")
                         m1 = data_cols - schema_cols
@@ -436,12 +424,7 @@ def main():
                         if m2: st.write(f"Columns in Schema but missing in Data: `{m2}`")
 
     # --- System Execution Logs ---
-    st.divider()
-    with st.expander("📝 System Execution Logs", expanded=False):
-        if st.session_state.get('system_logs'):
-            st.code("\n".join(st.session_state.system_logs))
-        else:
-            st.text("No execution logs recorded yet.")
+    render_execution_logs()
 
 if __name__ == "__main__":
     main()

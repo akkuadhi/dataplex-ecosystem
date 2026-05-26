@@ -18,7 +18,7 @@ from googleapiclient.discovery import build
 from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.runtime.scriptrunner import add_script_run_ctx
-from Shared_Resources.networking import setup_environment_logic
+from Shared_Resources.ui_helpers import render_system_sidebar, render_execution_logs, log_message
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Dataplex Rule Builder", layout="wide", page_icon="🛠️")
@@ -40,25 +40,6 @@ def setup_environment():
         st.session_state.env_ready = success
         st.session_state.proxy_mode = mode
         st.session_state.auth_status = status
-
-def manual_proxy_ui():
-    """Optional manual proxy override."""
-    with st.sidebar.expander("🌐 Manual Network Settings"):
-        url = st.text_input("Proxy URL (e.g. http://host:port)")
-        if st.button("Apply Proxy"):
-            if url:
-                os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = url
-                st.session_state.manual_proxy_active = True
-            else:
-                for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
-                    os.environ.pop(var, None)
-                st.session_state.manual_proxy_active = False
-            
-            # Reset session state to force re-authentication and re-discovery
-            if 'env_ready' in st.session_state: del st.session_state.env_ready
-            if 'catalog' in st.session_state: del st.session_state.catalog
-            st.cache_resource.clear()
-            st.rerun()
 
 @st.cache_resource
 def get_bq_service():
@@ -82,31 +63,20 @@ def check_table_access(project_id, dataset_id, table_id, bq_service):
 
 def build_full_catalog():
     """Discovery with project-level fast path and table-level precision."""
-    if 'debug_log' not in st.session_state: st.session_state.debug_log = []
-    
-    with st.sidebar.expander("🐞 Live Discovery Log", expanded=False):
-        log_placeholder = st.empty()
-    
-    def log_ui(msg):
-        st.session_state.debug_log.append(msg)
-        # Keep only the last 20 lines to prevent UI lag during intense scanning
-        log_placeholder.code("\n".join(st.session_state.debug_log[-20:]))
-        print(msg)
-
-    log_ui("🚀 Starting parallel discovery...")
+    log_message("🚀 Starting parallel discovery...")
     
     try:
         rm_service = get_rm_service()
         res = rm_service.projects().list().execute()
         projects = [p['projectId'] for p in res.get('projects', []) if p['lifecycleState'] == 'ACTIVE']
     except Exception as e:
-        log_ui("📡 RM API failed, trying BQ fallback...")
+        log_message("📡 RM API failed, trying BQ fallback...", level="WARNING")
         try:
             bq_service = get_bq_service()
             res = bq_service.projects().list().execute()
             projects = [p['projectReference']['projectId'] for p in res.get('projects', [])]
         except:
-            log_ui(f"❌ Project discovery failed: {e}")
+            log_message(f"Project discovery failed: {e}", level="ERROR")
             return {}
 
     if not projects:
@@ -120,7 +90,7 @@ def build_full_catalog():
     rw_perms = ["bigquery.tables.getData", "bigquery.tables.update", "bigquery.tables.updateData"]
 
     for pid in projects:
-        log_ui(f"🔭 Checking {pid}...")
+        log_message(f"🔭 Checking {pid}...")
         
         # 1. Project-level fast path
         try:
@@ -130,7 +100,7 @@ def build_full_catalog():
             has_project_rw = False
         
         if has_project_rw:
-            log_ui(f"  ✅ {pid}: Full project access detected.")
+            log_message(f"  ✅ {pid}: Full project access detected.")
         
         # 2. List datasets
         try:
@@ -148,7 +118,7 @@ def build_full_catalog():
                 
                 if has_project_rw:
                     p_catalog[ds] = all_tables
-                    log_ui(f"    ✅ {ds}: {len(all_tables)} tables added.")
+                    log_message(f"    ✅ {ds}: {len(all_tables)} tables added.")
                 else:
                     # 4. Granular table check (Parallelized per dataset)
                     valid_tables = []
@@ -161,15 +131,15 @@ def build_full_catalog():
                     
                     if valid_tables:
                         p_catalog[ds] = valid_tables
-                        log_ui(f"    ✅ {ds}: {len(valid_tables)} tables (fine-grained R/W)")
+                        log_message(f"    ✅ {ds}: {len(valid_tables)} tables (fine-grained R/W)")
                     else:
-                        log_ui(f"    ⚠️ {ds}: 0 tables with R/W access.")
+                        log_message(f"    ⚠️ {ds}: 0 tables with R/W access.", level="WARNING")
             
             if p_catalog:
                 full_catalog[pid] = p_catalog
                 
         except Exception as e:
-            log_ui(f"  ❌ Error scanning {pid}: {e}")
+            log_message(f"  ❌ Error scanning {pid}: {e}", level="ERROR")
             
     return full_catalog
 
@@ -186,17 +156,15 @@ def get_table_schema(project_id, dataset_id, table_id):
 def main():
     st.title("🛠️ Dataplex Rule Builder")
     setup_environment()
-    manual_proxy_ui()
+    render_system_sidebar()
 
-    st.sidebar.write(f"**Auth Status:** {st.session_state.get('auth_status', 'Unknown')}")
-    
     if not st.session_state.get('env_ready', False):
-        st.error("Authentication failed. Please run 'gcloud auth application-default login' in your terminal.")
+        st.error(f"Authentication failed: {st.session_state.get('auth_status', 'Unknown Error')}")
+        st.info("Please run 'gcloud auth application-default login' in your terminal.")
         return
 
     # --- Initial Discovery ---
     if 'catalog' not in st.session_state:
-        st.session_state.debug_log = []
         with st.spinner("🔍 Discovering BigQuery Resources..."):
             cat = build_full_catalog()
             if not cat:
@@ -208,10 +176,6 @@ def main():
     
     catalog = st.session_state.catalog
     
-    with st.sidebar.expander("📝 Full Discovery History", expanded=False):
-        for log in st.session_state.get('debug_log', []):
-            st.text(log)
-
     if 'rules' not in st.session_state: st.session_state.rules = []
 
     # --- Rule Management ---
@@ -348,6 +312,9 @@ def main():
                 save_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "Shared_Resources")
                 pd.DataFrame(st.session_state.rules).to_csv(os.path.join(save_dir, "final_rules.csv"), index=False)
                 st.success(f"Saved to Shared_Resources/final_rules.csv")
+
+    # --- System Execution Logs ---
+    render_execution_logs()
 
 if __name__ == "__main__":
     main()
