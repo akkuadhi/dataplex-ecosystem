@@ -13,6 +13,7 @@ import streamlit as st
 import pandas as pd
 import yaml
 import requests
+from google.cloud import bigquery
 from googleapiclient.discovery import build
 from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -147,7 +148,7 @@ def main():
         st.error("GCP Environment not ready. Please run 'gcloud auth application-default login'.")
         return
 
-    tabs = st.tabs(["📂 Build", "🔍 Discover", "✅ Verify", "🛠️ Generate"])
+    tabs = st.tabs(["📂 Build", "🔍 Discover", "✅ Verify", "🛠️ Generate", "🏗️ Create Table"])
 
     # --- Phase 0: Build ---
     with tabs[0]:
@@ -357,6 +358,137 @@ def main():
                     
                     st.success(f"Artifacts generated in {t_dir}")
                     log_step("P3", t, "Generated Spec and Batch script")
+
+    # --- Phase 4: Create Table ---
+    with tabs[4]:
+        st.header("Phase 4: Provision BigQuery Table")
+        
+        # 1. Target Selection (Re-using Multithreaded Catalog)
+        if 'catalog' not in st.session_state:
+            if st.button("🔍 Load Projects & Datasets", key="load_p4"):
+                with st.spinner("Scanning resources..."):
+                    st.session_state.catalog = build_catalog()
+        
+        if 'catalog' in st.session_state:
+            cat = st.session_state.catalog
+            
+            # Populate Locations in background if not already done
+            if 'locations' not in st.session_state:
+                with st.spinner("Identifying active regions..."):
+                    preferred_locs = ["us-central1", "europe-west2", "asia-east2"]
+                    unique_locs = set(preferred_locs + ["US", "EU"]) # Defaults
+                    service = get_bq_service()
+                    
+                    def get_ds_loc(p, d):
+                        try:
+                            res = service.datasets().get(projectId=p, datasetId=d).execute()
+                            return res.get('location', 'US')
+                        except: return 'US'
+                    
+                    # Sample a few datasets from each project for speed
+                    tasks = []
+                    for pid, datasets in cat.items():
+                        for ds_id in list(datasets.keys())[:2]: # Sample top 2 per project
+                            tasks.append((pid, ds_id))
+                    
+                    with ThreadPoolExecutor(max_workers=10) as executor:
+                        futures = [executor.submit(get_ds_loc, *t) for t in tasks]
+                        for f in as_completed(futures):
+                            unique_locs.add(f.result())
+                    
+                    # Ensure preferred are first, then others sorted
+                    others = sorted(list(unique_locs - set(preferred_locs)))
+                    st.session_state.locations = preferred_locs + others
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                target_p = st.selectbox("Target Project", list(cat.keys()), key="p4_p")
+            with c2:
+                target_d = st.selectbox("Target Dataset", list(cat[target_p].keys()) if target_p else [], key="p4_d")
+            with c3:
+                target_t = st.text_input("New Table Name", placeholder="e.g. sales_summary")
+            
+            target_loc = st.selectbox("Target Location", st.session_state.get('locations', ["us-central1", "europe-west2", "asia-east2"]), index=0)
+
+            st.divider()
+            
+            # 2. File Uploaders
+            u1, u2 = st.columns(2)
+            with u1:
+                data_file = st.file_uploader("Upload Data Sample (CSV/Excel)", type=["csv", "xlsx"])
+            with u2:
+                schema_file = st.file_uploader("Upload Schema Definition (CSV/Excel)", type=["csv", "xlsx"])
+
+            if data_file and schema_file:
+                # 3. Validation Logic
+                df_data = pd.read_csv(data_file) if data_file.name.endswith(".csv") else pd.read_excel(data_file)
+                df_schema = pd.read_csv(schema_file) if schema_file.name.endswith(".csv") else pd.read_excel(schema_file)
+                
+                data_cols = set(df_data.columns)
+                schema_cols = set(df_schema['column_name'].tolist())
+                
+                if st.button("🚀 Validate & Create Table"):
+                    if data_cols == schema_cols:
+                        st.success("✅ Validation Passed: Data headers match Schema definition.")
+                        
+                        # 4. Table Creation Logic
+                        try:
+                            client = bigquery.Client(project=target_p)
+                            full_table_id = f"{target_p}.{target_d}.{target_t}"
+                            
+                            # Construct SchemaFields
+                            schema_fields = []
+                            partition_col = None
+                            cluster_cols = []
+                            pk_cols = []
+                            
+                            for _, row in df_schema.iterrows():
+                                name = row['column_name']
+                                mode = "NULLABLE" if str(row['is_nullable']).upper() == "YES" else "REQUIRED"
+                                field = bigquery.SchemaField(
+                                    name=name, 
+                                    field_type=row['data_type'], 
+                                    mode=mode,
+                                    description=str(row.get('description', ''))
+                                )
+                                schema_fields.append(field)
+                                
+                                if str(row.get('is_partitioning_column')).upper() == "YES":
+                                    partition_col = name
+                                if not pd.isna(row.get('clustering_ordinal_position')):
+                                    cluster_cols.append(name)
+                                if str(row.get('primary_key')).upper() == "YES":
+                                    pk_cols.append(name)
+
+                            table = bigquery.Table(full_table_id, schema=schema_fields)
+                            table.location = target_loc
+                            
+                            if partition_col:
+                                table.time_partitioning = bigquery.TimePartitioning(field=partition_col)
+                            if cluster_cols:
+                                table.clustering_fields = cluster_cols
+                            
+                            # Create Table
+                            table = client.create_table(table)
+                            log_step("P4", target_t, f"Table {full_table_id} created successfully.")
+                            st.success(f"🎊 Table {target_t} provisioned in {target_d}!")
+                            
+                            # 5. Apply Primary Key (DDL)
+                            if pk_cols:
+                                pk_sql = f"ALTER TABLE `{full_table_id}` ADD PRIMARY KEY ({', '.join(pk_cols)}) NOT ENFORCED"
+                                client.query(pk_sql).result()
+                                log_step("P4", target_t, f"Primary key applied: {pk_cols}")
+                                st.info(f"🔑 Primary Key constraint applied to: {pk_cols}")
+
+                        except Exception as e:
+                            st.error(f"❌ Creation Failed: {e}")
+                            log_step("P4", target_t, f"Provisioning Error: {str(e)}")
+                    else:
+                        st.error("❌ Validation Failed: Data headers do not match Schema definition.")
+                        m1 = data_cols - schema_cols
+                        m2 = schema_cols - data_cols
+                        if m1: st.write(f"Columns in Data but missing in Schema: `{m1}`")
+                        if m2: st.write(f"Columns in Schema but missing in Data: `{m2}`")
 
     # --- System Execution Logs ---
     st.divider()
