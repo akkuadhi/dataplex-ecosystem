@@ -76,6 +76,7 @@ def setup_environment_logic():
     if proxy:
         os.environ['HTTP_PROXY'] = os.environ['HTTPS_PROXY'] = proxy
         os.environ['http_proxy'] = os.environ['https_proxy'] = proxy
+        os.environ['grpc_proxy'] = proxy  # For high-throughput BQ Storage API
     
     try:
         creds, project = default()
