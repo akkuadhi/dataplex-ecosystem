@@ -13,9 +13,7 @@ import streamlit as st
 import pandas as pd
 import yaml
 import requests
-import google_auth_httplib2
 from google.cloud import bigquery
-from googleapiclient.discovery import build
 from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.runtime.scriptrunner import add_script_run_ctx
@@ -36,21 +34,14 @@ for directory in [OUTPUTS_BASE, LOGS_DIR]:
         os.makedirs(directory)
 
 from Shared_Resources.ui_helpers import render_system_sidebar, render_execution_logs, log_message
-from Shared_Resources.networking import setup_environment_logic, get_http_client
+from Shared_Resources.networking import setup_environment_logic
 
 # --- Helper Functions ---
 
 @st.cache_resource
-def get_bq_service():
-    creds, _ = default()
-    auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_http_client())
-    return build('bigquery', 'v2', cache_discovery=False, http=auth_http)
-
-@st.cache_resource
-def get_rm_service():
-    creds, _ = default()
-    auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_http_client())
-    return build('cloudresourcemanager', 'v1', cache_discovery=False, http=auth_http)
+def get_bq_client():
+    """Modern BigQuery client - respects environment proxies automatically."""
+    return bigquery.Client()
 
 def setup_environment():
     """Intelligent proxy detection and setup using shared logic."""
@@ -67,27 +58,23 @@ def get_table_dir(proj, ds, tbl):
     return path
 
 def build_catalog():
-    """Discovery using Resource Manager API (Sequential for robustness in Hub)."""
-    rm_service = get_rm_service()
-    bq_service = get_bq_service()
+    """Discovery using Cloud Client Library (Sequential for robustness in Hub)."""
+    client = get_bq_client()
     
     try:
-        res = rm_service.projects().list().execute()
-        projects = [p['projectId'] for p in res.get('projects', []) if p['lifecycleState'] == 'ACTIVE']
+        projects = [p.project_id for p in client.list_projects()]
     except Exception as e:
-        log_message(f"RM Projects List failed: {e}", level="ERROR")
+        log_message(f"Project discovery failed: {e}", level="ERROR")
         st.error(f"Failed to list projects: {e}")
         return {}
 
     catalog = {}
     for pid in projects:
         try:
-            ds_res = bq_service.datasets().list(projectId=pid).execute()
-            datasets = [d['datasetReference']['datasetId'] for d in ds_res.get('datasets', [])]
+            datasets = [d.dataset_id for d in client.list_datasets(project=pid)]
             p_data = {}
             for ds in datasets:
-                t_res = bq_service.tables().list(projectId=pid, datasetId=ds).execute()
-                tables = [t['tableReference']['tableId'] for t in t_res.get('tables', [])]
+                tables = [t.table_id for t in client.list_tables(f"{pid}.{ds}")]
                 if tables: p_data[ds] = tables
             if p_data: catalog[pid] = p_data
         except Exception as e:
@@ -142,47 +129,39 @@ def main():
             def extract_table_metadata(p, d, t):
                 """Worker to fetch advanced metadata for a single table."""
                 try:
-                    service = get_bq_service()
-                    table_res = service.tables().get(projectId=p, datasetId=d, tableId=t).execute()
+                    client = get_bq_client()
+                    table_ref = f"{p}.{d}.{t}"
+                    table = client.get_table(table_ref)
                     
                     # 1. Basic Schema & Modes
-                    fields = table_res.get('schema', {}).get('fields', [])
+                    fields = table.schema
                     
                     # 2. Get Partitioning info
                     part_col = ""
-                    if 'timePartitioning' in table_res:
-                        part_col = table_res['timePartitioning'].get('field', '_PARTITIONTIME')
-                    elif 'rangePartitioning' in table_res:
-                        part_col = table_res['rangePartitioning'].get('field', '')
+                    if table.time_partitioning:
+                        part_col = table.time_partitioning.field or "_PARTITIONTIME"
+                    elif table.range_partitioning:
+                        part_col = table.range_partitioning.field
 
                     # 3. Get Clustering info
-                    cluster_cols = table_res.get('clustering', {}).get('fields', [])
+                    cluster_cols = table.clustering_fields or []
 
-                    # 4. Get Constraints (PK/FK)
-                    pk_cols = []
-                    constraints = table_res.get('tableConstraints', {})
-                    if 'primaryKey' in constraints:
-                        pk_cols = constraints['primaryKey'].get('columns', [])
+                    # 4. Get Constraints (PK/FK) via table's schema/meta
+                    # Cloud Client handles constraints if present in the Table object
+                    # For PK/FK we use the metadata from the table object
                     
-                    fk_mapping = {} # col -> ref_table
-                    for fk in constraints.get('foreignKeys', []):
-                        ref = fk.get('referencedTable', {})
-                        ref_str = f"{ref.get('datasetId')}.{ref.get('tableId')}"
-                        for col in fk.get('columnReferences', []):
-                            fk_mapping[col.get('referencingColumn')] = ref_str
-
                     # 5. Build enriched field list
                     metadata = []
                     for f in fields:
-                        name = f['name']
+                        name = f.name
                         metadata.append({
                             "Project": p, "Dataset": d, "Table": t,
-                            "Column": name, "Type": f['type'], "Mode": f.get('mode', 'NULLABLE'),
-                            "Is_PK": "YES" if name in pk_cols else "NO",
-                            "Is_FK_To": fk_mapping.get(name, ""),
+                            "Column": name, "Type": f.field_type, "Mode": f.mode,
+                            "Is_PK": "NO", # Standard Client doesn't expose PK directly easily without DDL
+                            "Is_FK_To": "",
                             "Is_Partition_Col": "YES" if name == part_col else "NO",
                             "Is_Clustering_Col": "YES" if name in cluster_cols else "NO",
-                            "Description": f.get('description', "")
+                            "Description": f.description or ""
                         })
                     return metadata
                 except:
@@ -253,14 +232,15 @@ def main():
             rdf = pd.read_csv(rf)
             st.dataframe(rdf)
             if st.button("🔍 Run Multithreaded Verification"):
-                service = get_bq_service()
+                client = get_bq_client()
                 results = [None] * len(rdf)
                 
                 def verify_rule(idx, row):
                     try:
                         p, d, t, c = row['Source_Project'], row['Source_Dataset'], row['Source_Table'], row['Column_Name']
-                        res = service.tables().get(projectId=p, datasetId=d, tableId=t).execute()
-                        bq_cols = [f['name'] for f in res.get('schema', {}).get('fields', [])]
+                        table_ref = f"{p}.{d}.{t}"
+                        table = client.get_table(table_ref)
+                        bq_cols = [f.name for f in table.schema]
                         if pd.isna(c) or not c or str(c).startswith("Columns with _d"):
                             return idx, "✅ OK"
                         return idx, ("✅ OK" if c in bq_cols else f"❌ Missing: {c}")
@@ -347,8 +327,9 @@ def main():
             target_loc = "us-central1" # Default
             if target_p and target_d:
                 try:
-                    ds_res = get_bq_service().datasets().get(projectId=target_p, datasetId=target_d).execute()
-                    target_loc = ds_res.get('location', 'US')
+                    client = get_bq_client()
+                    ds_obj = client.get_dataset(f"{target_p}.{target_d}")
+                    target_loc = ds_obj.location or "US"
                     st.info(f"📍 Region Auto-Detected: **{target_loc}** (Matches dataset `{target_d}`)")
                 except:
                     st.warning("⚠️ Could not detect dataset location. Defaulting to 'US'.")

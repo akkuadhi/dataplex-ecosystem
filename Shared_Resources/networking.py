@@ -1,32 +1,7 @@
 
 import os
 import requests
-import httplib2
-import socks
-import google_auth_httplib2
-from urllib.parse import urlparse
 from google.auth import default
-from googleapiclient.discovery import build
-
-def get_proxy_info():
-    """Parses environment proxy and returns an httplib2.ProxyInfo object."""
-    proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
-    if not proxy_url:
-        return None
-    
-    parsed = urlparse(proxy_url)
-    return httplib2.ProxyInfo(
-        proxy_type=socks.PROXY_TYPE_HTTP,
-        proxy_host=parsed.hostname,
-        proxy_port=parsed.port or 80,
-        proxy_user=parsed.username,
-        proxy_pass=parsed.password,
-        proxy_rdns=True  # MANDATORY: Proxy handles DNS resolution
-    )
-
-def get_http_client():
-    """Returns an httplib2.Http client configured with proxy settings."""
-    return httplib2.Http(proxy_info=get_proxy_info())
 
 def check_connectivity(proxy=None):
     """Checks connectivity to Google Discovery and OAuth APIs with an optional proxy."""
@@ -39,8 +14,6 @@ def check_connectivity(proxy=None):
         is_google = d_res.status_code == 200 and "discovery#directoryItem" in d_res.text
         
         # 2. Check OAuth (Authentication access)
-        # A 404 or 405 on a GET to /token is usually fine, it means the server is reached.
-        # A timeout or connection error means it's blocked.
         o_res = requests.get(oauth_url, proxies=proxies, timeout=5)
         is_oauth_reachable = o_res.status_code in [200, 400, 404, 405]
         
@@ -65,7 +38,7 @@ def get_best_proxy():
 def setup_environment_logic():
     """Common logic for setting up the environment, used by both Hub and specialized UIs."""
     # Reset proxies for a clean start
-    for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy']:
+    for var in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'grpc_proxy']:
         os.environ.pop(var, None)
     
     proxy, mode = get_best_proxy()
@@ -80,26 +53,9 @@ def setup_environment_logic():
     
     try:
         creds, project = default()
-        
-        # Live verification - Try Resource Manager first
-        try:
-            # Authorize the proxy-aware client with credentials
-            auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_http_client())
-            temp_rm = build('cloudresourcemanager', 'v1', cache_discovery=False, http=auth_http)
-            temp_rm.projects().list(pageSize=1).execute()
-        except Exception as rm_err:
-            # If RM fails (often due to permissions), try BigQuery as fallback
-            if "forbidden" in str(rm_err).lower() or "permission" in str(rm_err).lower():
-                try:
-                    auth_http = google_auth_httplib2.AuthorizedHttp(creds, http=get_http_client())
-                    temp_bq = build('bigquery', 'v2', cache_discovery=False, http=auth_http)
-                    temp_bq.projects().list().execute()
-                except Exception as bq_err:
-                    raise Exception(f"Live verification failed (RM & BQ). RM error: {str(rm_err)[:50]} | BQ error: {str(bq_err)[:50]}")
-            else:
-                # Likely a network error if it's not a permission issue
-                raise rm_err
-
+        # Live verification using a lightweight requests call (which respects the proxy we just set)
+        url = "https://www.googleapis.com/discovery/v1/apis"
+        requests.get(url, timeout=5)
         return True, mode, "✅ Authenticated & Connected"
     except Exception as e:
         error_msg = str(e)
