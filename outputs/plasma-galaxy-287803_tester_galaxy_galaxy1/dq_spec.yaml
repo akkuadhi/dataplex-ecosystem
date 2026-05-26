@@ -1,0 +1,20 @@
+dataQualitySpec:
+  rules:
+  - dimension: COMPLETENESS
+    column: Year
+    ruleType: NonNull
+    passingThreshold: 1.0
+  - dimension: VALIDITY
+    column: Year
+    ruleType: Range
+    range:
+      min: 1900.0
+      max: 2100.0
+  - dimension: ACCURACY
+    column: null
+    ruleType: SqlAssertion
+    passingThreshold: 0.95
+  - dimension: VOLUME
+    column: (Table Level)
+    ruleType: SqlAssertion
+    passingThreshold: 1.0

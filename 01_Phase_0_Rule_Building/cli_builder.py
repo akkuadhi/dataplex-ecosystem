@@ -71,34 +71,54 @@ def define_new_rule(client, projects):
 
     # 3. Rule Details
     print("\n[Step 3] Rule Definition")
-    col_name = select_from_list(["(Table Level)"] + src_columns, "Target Column")
+    col_name = select_from_list(["(Table Level)", "Derived Attributes"] + src_columns, "Target Column")
+    if col_name == "Derived Attributes":
+        col_name = input("Enter Attribute Name (default: 'Columns with _d or _d_(case insenstive) in their names'): ").strip() or "Columns with _d or _d_(case insenstive) in their names"
+    elif col_name == "(Table Level)":
+        col_name = ""
+
     dimensions = ["COMPLETENESS", "UNIQUENESS", "VALIDITY", "TIMELINESS", "ACCURACY", "VOLUME", "CONSISTENCY"]
     dimension = select_from_list(dimensions, "Dimension")
     types = ["NonNull", "Uniqueness", "Range", "Set", "Regex", "SqlAssertion"]
     rule_type = select_from_list(types, "Rule Type")
     
     logic = input("Enter Rule Logic (Plain English): ").strip()
-    threshold = float(input("Enter Threshold (0.0 - 1.0, default 1.0): ") or "1.0")
+    
+    t_type = select_from_list(["Single", "Range"], "Threshold Type")
+    if t_type == "Single":
+        threshold = float(input("Enter Threshold (0.0 - 1.0, default 1.0): ") or "1.0")
+        lower_threshold = upper_threshold = ""
+    else:
+        threshold = ""
+        lower_threshold = float(input("Enter Lower Threshold (default 0.0): ") or "0.0")
+        upper_threshold = float(input("Enter Upper Threshold (default 1.0): ") or "1.0")
+        
     ignore_null = input("Ignore Nulls? (y/n, default n): ").lower() == 'y'
     
     scan_id = input(f"Enter Scan ID (default {src_table}-dq-scan): ").strip() or f"{src_table}-dq-scan"
     disp_name = input(f"Enter Display Name (default {src_table.capitalize()} Quality Scan): ").strip() or f"{src_table.capitalize()} Quality Scan"
+    scan_desc = input(f"Enter Scan Description (default 'DQ Scan for {src_table}'): ").strip() or f"DQ Scan for {src_table}"
+    
     inc_field = select_from_list(["None"] + src_columns, "Incremental Field")
     email = input("Enter Notification Email: ").strip()
     location = input("Enter Location (default us-central1): ").strip() or "us-central1"
     cron = input("Enter Schedule (Cron, default '0 0 * * *'): ").strip() or "0 0 * * *"
     labels = input("Enter Labels (k=v, default 'env=prod'): ").strip() or "env=prod"
+    
+    sampling = float(input("Enter Sampling Percent (0.0 - 100.0, default 100.0): ") or "100.0")
+    row_filter = input("Enter Row Filter (SQL WHERE clause, e.g., status='ACTIVE' or press Enter for None): ").strip()
 
     return {
         "Source_Project": src_project, "Source_Dataset": src_dataset, "Source_Table": src_table,
         "Historic_Project": hist_project, "Historic_Dataset": hist_dataset, "Historic_Table": hist_table,
         "Location": location, "Scan_ID": scan_id, "Display_Name": disp_name,
-        "Scan_Description": f"DQ Scan for {src_table}", "Schedule_Cron": cron,
+        "Scan_Description": scan_desc, "Schedule_Cron": cron,
         "Incremental_Field": inc_field if inc_field != "None" else "", "Labels": labels,
-        "Sampling_Percent": 100, "Row_Filter": "",
-        "Column_Name": col_name if col_name != "(Table Level)" else "",
+        "Sampling_Percent": sampling, "Row_Filter": row_filter,
+        "Column_Name": col_name,
         "Dimension": dimension, "Rule_Type": rule_type, "Rule_Logic": logic,
-        "Threshold": threshold, "Ignore_Null": str(ignore_null).upper(), "Notification_Email": email
+        "Threshold": threshold, "Lower_Threshold": lower_threshold, "Upper_Threshold": upper_threshold,
+        "Ignore_Null": str(ignore_null).upper(), "Notification_Email": email
     }
 
 def main():

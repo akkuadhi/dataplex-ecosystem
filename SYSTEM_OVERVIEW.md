@@ -8,69 +8,67 @@ This is the centralized hub for the **Dataplex End-to-End Scan Creation System**
 flowchart LR
     subgraph P0 ["Phase 0: Build"]
         direction TB
-        P0S["UI / CLI"] --> P0P["Select Projects"] --> P0F["Fetch BQ Schema"] --> P0B["Build Rules"] --> P0C["Rules CSV"]
+        P0S["UI Builder"] --> P0P["High-Speed Discovery"] --> P0B["Build Rules (Range/Derived)"] --> P0C["Rules CSV"]
     end
 
     subgraph P1 ["Phase 1: Discover"]
         direction TB
-        P1A["Schema Agent"] --> P1S["Scan Projects"] --> P1V{"Verify Location"} --> P1M["Official Metadata"]
+        P1A["Resource Manager API"] --> P1S["Multithreaded Scan"] --> P1M["Consolidated Meta (PK/FK)"]
     end
 
     subgraph P2 ["Phase 2: Verify"]
         direction TB
-        P2A["@data-verifier"] --> P2M["Match Headers"] --> P2V{"Verify Mismatches"} --> P2R["Verified Rules"]
+        P2A["Multithreaded Verifier"] --> P2M["Live BQ Check"] --> P2V{"Verify R/W"} --> P2R["Verified Rules"]
     end
 
     subgraph P3 ["Phase 3: Generate"]
         direction TB
-        P3A["@rule-creator"] --> P3T["Translate Logic"] --> P3L{"Verify Logic"} --> P3G["Generate SQL"] --> P3S{"Verify SQL"} --> P3F["Generate Files"]
+        P3A["Artifact Generator"] --> P3T["Parse Thresholds"] --> P3G["Generate YAML"] --> P3F["Create Batch CLI"]
     end
 
     P0 --> P1 --> P2 --> P3
     P3 --> DONE["Scans Ready"]
 
-    style P1V fill:#f9f,stroke:#333,stroke-width:2px
+    style P1M fill:#f9f,stroke:#333,stroke-width:2px
     style P2V fill:#f9f,stroke:#333,stroke-width:2px
-    style P3L fill:#f9f,stroke:#333,stroke-width:2px
-    style P3S fill:#f9f,stroke:#333,stroke-width:2px
+    style P3G fill:#f9f,stroke:#333,stroke-width:2px
 ```
 
 ## **The Master Orchestrator**
-**Tool:** `master_hub_ui.py` (Streamlit)
+**Tool:** `hub.py` (Streamlit)
 - **Purpose:** A single entry point to run all 4 phases of the pipeline.
-- **Features:** Centralized proxy management, interactive verification, and automated file generation.
+- **Features:** Intelligent auto-authentication, fallback proxy management, and unified execution logs (minimized to reduce UI lag). High-performance multithreading across all phases.
 
 ## **The Four-Phase Pipeline**
-...
 
 ### **Phase 0: Rule Building (UI)**
-**Tool:** `Rule creator/rule_builder_ui.py` (Streamlit)
-- **Purpose:** Create your rules file from scratch using a dynamic UI.
-- **Verification Step:** The UI fetches live schemas from BigQuery. You review every rule in a dynamic table before saving.
+**Tool:** `01_Phase_0_Rule_Building/ui_builder.py` (Streamlit)
+- **Purpose:** Create your rules file from scratch using a reactive UI. Supports Single pass-rates, Range Thresholds (Lower/Upper), and Derived Attributes.
+- **Verification Step:** Live validation using Google APIs. Logs are minimized by default to ensure maximum speed.
 
 ### **Phase 1: Discovery (Schema Alignment)**
-...
+**Tool:** Built into `hub.py`
+- **Purpose:** Perform bulk extractions at the table, dataset, or project level.
+- **Features:** Uses Resource Manager APIs for lightning-fast project scans. Identifies Primary Keys, Foreign Keys, Partitioning, and Clustering columns.
 
 ### **Phase 2: Verification (Rule Cleansing)**
-**Agent:** `@data-verifier`
-- **Purpose:** Cross-reference your Rules File against your actual Data Files.
-- **Verification Step:** 
-    - The agent will list every mismatch found (casing, spaces, missing columns).
-    - It will propose a correction plan and **must wait for your explicit approval** before modifying any file.
+**Tool:** Built into `hub.py`
+- **Purpose:** Cross-reference your Rules File against actual live Data schemas in bulk.
+- **Features:** Multithreaded concurrent verification (`ThreadPoolExecutor`). Accurately validates derived attributes and physical columns.
 
 ### **Phase 3: Generation (Config Creation)**
-**Agent:** `@rule-creator`
-- **Purpose:** Translate natural language business logic into Dataplex YAML and Batch files.
-- **Verification Step:**
-    - The agent will translate your "Rule_Logic" into BigQuery SQL.
-    - **MANDATORY:** It will display the proposed SQL and parameter mappings.
-    - **Confirmation Required:** You must review and approve the SQL logic before the `.yaml` and `.bat` files are generated.
+**Tool:** Built into `hub.py`
+- **Purpose:** Translate verified rules into Dataplex YAML and executable shell scripts (`create_scan.sh`).
+- **Features:** Handles range thresholds and automatically skips schema constraints for derived attributes.
 
 ---
 
 ## **Directory Structure**
-- `/Schema`: BigQuery discovery tools.
-- `/Verification`: Rule-to-Data matching agents.
-- `/Rule creator`: Logic-to-YAML/Batch translation agents.
-- `/outputs`: (Automated) Structured, table-specific artifacts (YAML, Batch, Schemas).
+- `/00_Orchestration`: Master Hub and unified workflows.
+- `/01_Phase_0_Rule_Building`: UI and CLI for rule creation.
+- `/02_Phase_1_Schema_Discovery`: Legacy individual discovery agents.
+- `/03_Phase_2_Metadata_Verification`: Legacy verification agents.
+- `/04_Phase_3_Config_Generation`: Legacy config translation agents.
+- `/outputs`: (Automated) Structured artifacts (YAML, Bash, Schemas).
 - `/logs`: (Automated) Timestamped audit logs for every execution step.
+- `/Shared_Resources`: Master templates and architecture diagrams.

@@ -1,0 +1,1 @@
+gcloud dataplex datascans create data-quality galaxy-quality-check --location=us-central1 --data-source-resource=//bigquery.googleapis.com/projects/plasma-galaxy-287803/datasets/tester_galaxy/tables/galaxy1 --data-quality-spec-file=C:\Users\akkua\Dataplex_Ecosystem\outputs\plasma-galaxy-287803_tester_galaxy_galaxy1\dq_spec.yaml
