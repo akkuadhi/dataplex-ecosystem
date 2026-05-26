@@ -1,0 +1,8 @@
+streamlit
+pandas
+pyyaml
+requests
+google-cloud-bigquery
+google-api-python-client
+google-auth
+openpyxl
