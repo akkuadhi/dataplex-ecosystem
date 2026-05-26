@@ -35,8 +35,17 @@ for directory in [OUTPUTS_BASE, LOGS_DIR]:
         os.makedirs(directory)
 
 from Shared_Resources.ui_helpers import render_system_sidebar, render_execution_logs, log_message
+from Shared_Resources.networking import setup_environment_logic, get_http_client
 
 # --- Helper Functions ---
+
+@st.cache_resource
+def get_bq_service():
+    return build('bigquery', 'v2', cache_discovery=False, http=get_http_client())
+
+@st.cache_resource
+def get_rm_service():
+    return build('cloudresourcemanager', 'v1', cache_discovery=False, http=get_http_client())
 
 def setup_environment():
     """Intelligent proxy detection and setup using shared logic."""

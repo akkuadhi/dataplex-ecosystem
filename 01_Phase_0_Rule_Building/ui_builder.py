@@ -19,6 +19,7 @@ from google.auth import default
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from streamlit.runtime.scriptrunner import add_script_run_ctx
 from Shared_Resources.ui_helpers import render_system_sidebar, render_execution_logs, log_message
+from Shared_Resources.networking import setup_environment_logic, get_http_client
 
 # --- Page Configuration ---
 st.set_page_config(page_title="Dataplex Rule Builder", layout="wide", page_icon="🛠️")
@@ -43,11 +44,11 @@ def setup_environment():
 
 @st.cache_resource
 def get_bq_service():
-    return build('bigquery', 'v2', cache_discovery=False)
+    return build('bigquery', 'v2', cache_discovery=False, http=get_http_client())
 
 @st.cache_resource
 def get_rm_service():
-    return build('cloudresourcemanager', 'v1', cache_discovery=False)
+    return build('cloudresourcemanager', 'v1', cache_discovery=False, http=get_http_client())
 
 def check_table_access(project_id, dataset_id, table_id, bq_service):
     """Checks for Read/Write/Update permissions on a specific table."""

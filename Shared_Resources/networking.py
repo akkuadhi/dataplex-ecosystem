@@ -1,8 +1,31 @@
 
 import os
 import requests
+import httplib2
+import socks
+from urllib.parse import urlparse
 from google.auth import default
 from googleapiclient.discovery import build
+
+def get_proxy_info():
+    """Parses environment proxy and returns an httplib2.ProxyInfo object."""
+    proxy_url = os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
+    if not proxy_url:
+        return None
+    
+    parsed = urlparse(proxy_url)
+    return httplib2.ProxyInfo(
+        proxy_type=socks.PROXY_TYPE_HTTP,
+        proxy_host=parsed.hostname,
+        proxy_port=parsed.port or 80,
+        proxy_user=parsed.username,
+        proxy_pass=parsed.password,
+        proxy_rdns=True  # MANDATORY: Proxy handles DNS resolution
+    )
+
+def get_http_client():
+    """Returns an httplib2.Http client configured with proxy settings."""
+    return httplib2.Http(proxy_info=get_proxy_info())
 
 def check_connectivity(proxy=None):
     """Checks connectivity to Google Discovery and OAuth APIs with an optional proxy."""
@@ -26,7 +49,7 @@ def check_connectivity(proxy=None):
 
 def get_best_proxy():
     """Identifies the best proxy to use: Direct first, then HSBC proxy."""
-    hsbc_proxy = "http://googleapis-dev-gcp.cloud.uk.hsbc:3128"
+    hsbc_proxy = "http://googleapis-dev.dev.gcp.cloud.in.hsbc:3128"
     
     # Try Direct first
     if check_connectivity(None):
@@ -58,13 +81,13 @@ def setup_environment_logic():
         
         # Live verification - Try Resource Manager first
         try:
-            temp_rm = build('cloudresourcemanager', 'v1', credentials=creds, cache_discovery=False)
+            temp_rm = build('cloudresourcemanager', 'v1', credentials=creds, cache_discovery=False, http=get_http_client())
             temp_rm.projects().list(pageSize=1).execute()
         except Exception as rm_err:
             # If RM fails (often due to permissions), try BigQuery as fallback
             if "forbidden" in str(rm_err).lower() or "permission" in str(rm_err).lower():
                 try:
-                    temp_bq = build('bigquery', 'v2', credentials=creds, cache_discovery=False)
+                    temp_bq = build('bigquery', 'v2', credentials=creds, cache_discovery=False, http=get_http_client())
                     temp_bq.projects().list().execute()
                 except Exception as bq_err:
                     raise Exception(f"Live verification failed (RM & BQ). RM error: {str(rm_err)[:50]} | BQ error: {str(bq_err)[:50]}")

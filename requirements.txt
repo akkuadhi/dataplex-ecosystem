@@ -6,3 +6,4 @@ google-cloud-bigquery==3.41.0
 google-api-python-client==2.196.0
 google-auth==2.53.0
 openpyxl==3.1.5
+PySocks==1.7.1
