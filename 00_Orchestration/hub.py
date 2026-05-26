@@ -57,12 +57,29 @@ def get_table_dir(proj, ds, tbl):
     os.makedirs(path, exist_ok=True)
     return path
 
+def get_allowed_projects():
+    """Reads the list of allowed projects from config file."""
+    config_path = os.path.join(SHARED_DIR, "project_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                return config.get("allowed_projects", [])
+        except Exception as e:
+            log_message(f"Error reading project config: {e}", level="WARNING")
+    return []
+
 def build_catalog():
-    """Discovery using Cloud Client Library (Sequential for robustness in Hub)."""
+    """Discovery using Cloud Client Library (Limited by project_config.json)."""
     client = get_bq_client()
+    allowed = get_allowed_projects()
     
     try:
-        projects = [p.project_id for p in client.list_projects()]
+        if allowed:
+            log_message(f"Filtering discovery to {len(allowed)} projects from config.")
+            projects = allowed
+        else:
+            projects = [p.project_id for p in client.list_projects()]
     except Exception as e:
         log_message(f"Project discovery failed: {e}", level="ERROR")
         st.error(f"Failed to list projects: {e}")

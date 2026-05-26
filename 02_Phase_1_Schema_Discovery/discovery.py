@@ -40,19 +40,37 @@ def get_target_tables():
     tables_input = input("Enter table IDs (comma-separated, e.g., 'users, orders'): ").strip()
     return set(t.strip() for t in tables_input.split(",") if t.strip())
 
+import json
+def get_allowed_projects():
+    """Reads the list of allowed projects from config file."""
+    config_path = os.path.join(BASE_DIR, "Shared_Resources", "project_config.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r') as f:
+                config = json.load(f)
+                return config.get("allowed_projects", [])
+        except:
+            pass
+    return []
+
 def discover_table_locations(client, target_tables):
-    """Scans all accessible projects to find the datasets containing target tables."""
-    print("\n[3/5] Searching for tables across your projects...")
+    """Scans projects (Filtered by project_config.json) to find tables."""
+    print("\n[3/5] Searching for tables...")
     found_locations = []
     
-    projects = list(client.list_projects())
-    if not projects:
-        print("  [!] No projects found. Ensure you are authenticated.")
-        return None
+    allowed = get_allowed_projects()
+    if allowed:
+        projects = allowed
+        print(f"  -> Scanning {len(allowed)} projects from config.")
+    else:
+        all_proj = list(client.list_projects())
+        projects = [p.project_id for p in all_proj]
+        if not projects:
+            print("  [!] No projects found. Ensure you are authenticated.")
+            return None
 
-    for project in projects:
-        project_id = project.project_id
-        print(f"  Scanning project: {project_id}...", end="\r")
+    for project_id in projects:
+        print(f"  Scanning: {project_id}...", end="\r")
         try:
             datasets = list(client.list_datasets(project=project_id))
             for dataset in datasets:
@@ -67,7 +85,7 @@ def discover_table_locations(client, target_tables):
                         "dataset": dataset_id,
                         "tables": list(matches)
                     })
-        except Exception: # pylint: disable=broad-except
+        except Exception:
             continue
     
     print("  Scanning complete.                                ")
